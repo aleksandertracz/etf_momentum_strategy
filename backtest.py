@@ -1,6 +1,5 @@
 # backtest.py
 import pandas as pd
-import numpy as np
 
 def process(in_data):
     """
@@ -15,34 +14,41 @@ def process(in_data):
     out_data = in_data.set_index('Date')
     return out_data
 
-
-def run_momentum_strategy(price_data, top_n=3):
+def run_momentum_strategy(price_data, rebalancing_freq, top_n=3):
     """
     Momentum strategy. Select top_n ETFs based on the highest 3M returns.
     Parameters:
         price_data (pd.DataFrame): ETFs' close prices.
+        rebalancing_freq (string): Frequency with which to rebalance the portfolio.
         top_n (int): How many ETFs to select? Default: 3.
     Returns:
         portfolio (pd.DataFrame): Portfolio value.
     """
     # Process the input data
-    price_data = process(price_data)
+    #price_data = process(price_data)
     # Calculate returns
     #returns = price_data.pct_change()
     # Convert to monthly prices and returns
-    monthly_prices = price_data.resample("ME").last()
-    monthly_returns = monthly_prices.pct_change()
+    rebal_prices = price_data.resample(rebalancing_freq).last().fillna("ffill")
+    rebal_returns = rebal_prices.pct_change()
     # A series to store monthly portfolio values
-    portfolio = pd.Series(index=monthly_prices.index, dtype=float)
+    portfolio = pd.Series(index=rebal_prices.index, dtype=float)
     # A dataframe to store ETFs weights
-    weights_history = pd.DataFrame(index=monthly_prices.index, columns=price_data.columns)
-    # Start looping from the 12th month (1 year)
-    for i in range(12, len(monthly_prices)-1):
-        date = monthly_prices.index[i]
-        next_month_date = monthly_prices.index[i+1]
+    weights_history = pd.DataFrame(index=rebal_prices.index, columns=price_data.columns)
+    # Start looping from after the 1st year of the sample
+    min_lookback = pd.DateOffset(months=12)
+    first_valid_date = rebal_prices.index[0] + min_lookback
+    valid_dates = rebal_prices.index[rebal_prices.index >= first_valid_date]
+    for date in valid_dates:
+        # Get position of the date in valid_dates
+        i = valid_dates.get_loc(date)
+        #date = monthly_prices.index[i]
+        #next_month_date = monthly_prices.index[i+1]
         # Lookback periods
-        past_3m = monthly_prices.iloc[i-3:i]
-        past_12m = monthly_prices.iloc[i-12:i]
+        lookbacks = {'3m': date-pd.DateOffset(months=3), '12m': date-pd.DateOffset(months=12)}
+        # Find the closest available historical prices (using .asof for backward fill)
+        past_3m = rebal_prices.loc[lookbacks['3m']:date]
+        past_12m = rebal_prices.loc[lookbacks['12m']:date]
         # 3M and 12M returns
         perf_3m = past_3m.iloc[-1]/past_3m.iloc[0] - 1
         perf_12m = past_12m.iloc[-1]/past_12m.iloc[0] - 1
@@ -53,10 +59,11 @@ def run_momentum_strategy(price_data, top_n=3):
         weights = pd.Series(0.0, index=price_data.columns)
         weights[selected] = 1/top_n  # Equal weight
         weights_history.loc[date] = weights
-        # Portfolio return in a month
-        next_month_return = monthly_returns.iloc[i+1]
-        portfolio[next_month_date] = (weights*next_month_return).sum()
+        # Portfolio return in the end of next period
+        if i+1 < len(valid_dates):
+            next_period = valid_dates[i+1]
+        next_period_return = rebal_returns.loc[next_period]
+        portfolio[next_period] = (weights*next_period_return).sum()
     # Portfolio value in time   
     portfolio = (1 + portfolio.fillna(0)).cumprod()
     return portfolio, weights_history
-
