@@ -13,11 +13,17 @@ END_DATE = "2024-12-31"
 TOP_N = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 BENCHMARK = 'SPY'
 REBALANCING_FREQ = ['1D', '1W', '2W', '1ME', '2ME', '1Q', '2Q']
+REDOWNLOAD_DATA = False # If we want to have fresh data downloaded or work on previously downloaded
 
-# Data download
-print("Downloading data...")
-price_data = download_data(TICKERS, start=START_DATE, end=END_DATE)
-price_data.to_csv("etf_data.csv")
+if REDOWNLOAD_DATA:
+    # Data download
+    print("Downloading data...")
+    price_data = download_data(TICKERS, start=START_DATE, end=END_DATE)
+    price_data.to_csv("etf_data.csv")
+else:
+    print("Data loaded from local drive...")
+    # Data loading
+    price_data = pd.read_csv("etf_data.csv", index_col="Date", date_format="%Y-%m-%d")
 
 # Run the strategy for different values of rebalancing frequency and top N
 for rebalancing_freq in REBALANCING_FREQ:
@@ -26,7 +32,8 @@ for rebalancing_freq in REBALANCING_FREQ:
         portfolio, weights = run_momentum_strategy(price_data, rebalancing_freq, top_n=top_n)
 
         # Get portfolio returns on benchmark strategy
-        bench_portfolio = (price_data[BENCHMARK]/price_data[BENCHMARK].iloc[0])*portfolio.iloc[0]
+        price_benchmark = price_data[BENCHMARK].resample(rebalancing_freq).last()
+        bench_portfolio = (price_benchmark/price_benchmark.iloc[0])*portfolio.iloc[0]
 
         # Show metrics
         print(f"Momentum strategy metrics, rebalancing freq: {rebalancing_freq}, top {top_n} ETFs...")
